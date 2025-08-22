@@ -11,7 +11,7 @@ def _username_from_env():
         if v:
             # basic sanitization to keep paths safe
             return v.strip().replace("\\", "_").replace("/", "_")
-    return None
+    return "Bob"
 
 # Keep original __init__
 _orig_init = _nodes.SaveImage.__init__
@@ -33,4 +33,18 @@ def _patched_init(self, *args, **kwargs):
     self.output_dir = user_dir  # SaveImage uses this when building paths
 
 # Assign directly; DO NOT wrap with MethodType
-_nodes.SaveImage.__init__ = _patched_init
+# _nodes.SaveImage.__init__ = _patched_init
+
+# OPTIONAL: globally scope the output directory for this process
+_orig_get_out = _fp.get_output_directory
+
+def _patched_get_output_directory(*args, **kwargs):
+    base = _orig_get_out(*args, **kwargs)
+    user = _username_from_env()
+    if not user:
+        return base
+    path = os.path.join(base, user)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+_fp.get_output_directory = _patched_get_output_directory
