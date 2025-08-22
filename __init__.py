@@ -1,27 +1,36 @@
 import os
-import types
 import nodes as _nodes
+import folder_paths as _fp
 
-# Keep the original
-_orig_save_images = _nodes.SaveImage.save_images
+# --- config: where to read the username from ---
+ENV_KEYS = ("COMFY_USER", "REMOTE_USER", "X_FORWARDED_USER")
 
 def _username_from_env():
-    for key in ("COMFY_USER", "REMOTE_USER", "X_FORWARDED_USER"):
-        v = os.environ.get(key)
+    for k in ENV_KEYS:
+        v = os.environ.get(k)
         if v:
+            # basic sanitization to keep paths safe
             return v.strip().replace("\\", "_").replace("/", "_")
     return None
 
-def _scoped_save_images(self, images, filename_prefix, prompt=None, extra_pnginfo=None, **kwargs):
-    user = _username_from_env()
-    if user:
-        sub = kwargs.get("subfolder")
-        if sub:
-            sub = str(sub).lstrip("/\\")
-            kwargs["subfolder"] = f"{user}/{sub}"
-        else:
-            kwargs["subfolder"] = user
-    return _orig_save_images(self, images, filename_prefix, prompt=prompt, extra_pnginfo=extra_pnginfo, **kwargs)
+# Keep original __init__
+_orig_init = _nodes.SaveImage.__init__
 
-# Patch it
-_nodes.SaveImage.save_images = types.MethodType(_scoped_save_images, _nodes.SaveImage)
+def _patched_init(self, *args, **kwargs):
+    # run the real init first (sets output_dir, type, prefix_append, etc.)
+    _orig_init(self, *args, **kwargs)
+
+    user = _username_from_env()
+    if not user:
+        return
+
+    # Determine the base output directory
+    base = getattr(self, "output_dir", None) or _fp.get_output_directory()
+
+    # Point this instance to a user-scoped directory
+    user_dir = os.path.join(base, user)
+    os.makedirs(user_dir, exist_ok=True)
+    self.output_dir = user_dir  # SaveImage uses this when building paths
+
+# Assign directly; DO NOT wrap with MethodType
+_nodes.SaveImage.__init__ = _patched_init
