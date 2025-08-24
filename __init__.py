@@ -1,22 +1,21 @@
 # custom_nodes/current_username/__init__.py
 import json
 from aiohttp import web
+from comfy.comfy_types.node_typing import ComfyNodeABC, InputTypeDict, IO
 
-# ------------------------
-# Custom Node Definition
-# ------------------------
-class CurrentUsernameNode:
+class CurrentUsernameNode(ComfyNodeABC):
     @classmethod
-    def INPUT_TYPES(cls):
-        return {"required": {}}
+    def INPUT_TYPES(cls) -> InputTypeDict:
+        return {
+            "required": {"value": (IO.STRING, {})},
+        }
 
-    RETURN_TYPES = ("STRING",)
-    FUNCTION = "get_username"
-    CATEGORY = "utils"
+    RETURN_TYPES = (IO.STRING,)
+    FUNCTION = "execute"
+    CATEGORY = "utils/primitive"
 
-    def get_username(self):
-        # Default fallback if middleware didn’t inject
-        return ("anonymous",)
+    def execute(self, value: str) -> tuple[str]:
+        return (value or "anonymous",)
 
 NODE_CLASS_MAPPINGS = {
     "CurrentUsername": CurrentUsernameNode
@@ -51,12 +50,10 @@ async def inject_user_into_prompt(request, handler):
 
 
             for v in body["prompt"].values():
-                print(f"testing {v}")
-                if "_meta" in v:
-                    meta = v["_meta"]
-                    if "title" in meta and meta["title"] == "CurrentUser":
-                        v["inputs"] = { "value": username }
-                        v["widgets_values"] = [ username ]
+                #print(f"testing {v}")
+                if "class_type" in v and v["class_type"] == "CurrentUsername":
+                    v["inputs"] = { "value": username }
+                    v["widgets_values"] = [ username ]
 
             # print(f"{json.dumps(body, indent=2)}")
             # Replace the request payload with our modified version
@@ -74,11 +71,20 @@ async def inject_user_into_prompt(request, handler):
 _orig_init = web.Application.__init__
 
 def _patched_init(self, *args, **kwargs):
-    middlewares = list(kwargs.get("middlewares", []))
-    print(f"[CurrentUsername] Auto-registering middleware {middlewares}")
-    middlewares.append(inject_user_into_prompt)
-    kwargs["middlewares"] = middlewares
-    _orig_init(self, *args, **kwargs)
-    print(f"[CurrentUsername] Middleware auto-registered {kwargs}")
+    if "middlewares" in kwargs:
+        middlewares = list(kwargs.get("middlewares", []))
+        print(f"[CurrentUsername] Auto-registering middleware {middlewares}")
+        middlewares.append(inject_user_into_prompt)
+        kwargs["middlewares"] = middlewares
+        print(f"[CurrentUsername] Middleware auto-registered.")
+    else:
+        print(f"[CurrentUsername] Middleware not auto-registered. {kwargs.keys()}")
 
-web.Application.__init__ = _patched_init
+    _orig_init(self, *args, **kwargs)
+    
+# does not work, disabled
+#web.Application.__init__ = _patched_init
+""" 
+# you need to add this to server.py before "self.app = web.Application(client_max_size=max_upload_size, middlewares=middlewares)" is called 
+from custom_nodes.current_username import inject_user_into_prompt
+middlewares.append(inject_user_into_prompt) """
